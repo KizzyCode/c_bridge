@@ -1,0 +1,22 @@
+[package]
+name = "c_bridge"
+edition = "2018"
+version = "0.1.0"
+authors = ["KizzyCode Software Labs./Keziah Biermann"]
+description = "Some data structures and abstractions to create clean Rust<->C-FFI interfaces"
+categories = ["development-tools", "development-tools::ffi"]
+keywords = ["C", "C-API", "FFI", "FFI-Bindings"]
+license = "BSD-2-Clause OR MIT"
+repository = "https://github.com/KizzyCode/c_bridge"
+readme = "README.md"
+
+
+[badges]
+travis-ci = { repository = "KizzyCode/c_bridge" }
+appveyor = { repository = "KizzyCode/c_bridge" }
+maintenance = { status = "actively-developed" }
+is-it-maintained-open-issues = { repository = "KizzyCode/c_bridge" }
+is-it-maintained-issue-resolution = { repository = "KizzyCode/c_bridge" }
+
+
+[dependencies]
