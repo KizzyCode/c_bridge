@@ -72,8 +72,8 @@ impl FfiResult {
 		Self{ ok, err }
 	}
 	
-	/// Converts the `FfiResult` into a Rust `Result`
-	pub fn result(self) -> Result<FfiObject, FfiObject> {
+	/// Maps `self` into a Rust `Result`
+	pub fn map(self) -> Result<FfiObject, FfiObject> {
 		match self.err.payload.is_null() {
 			false => Err(self.err),
 			true => Ok(self.ok),
