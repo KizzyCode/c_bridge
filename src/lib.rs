@@ -79,4 +79,12 @@ impl FfiResult {
 			true => Ok(self.ok),
 		}
 	}
+	/// Maps the `ok`-result using `f`
+	pub fn map_ok<T>(self, f: impl Fn(FfiObject) -> T) -> Result<T, FfiObject> {
+		self.map().map(f)
+	}
+	/// Maps the `err`-result using `f`
+	pub fn map_err<T>(self, f: impl Fn(FfiObject) -> T) -> Result<FfiObject, T> {
+		self.map().map_err(f)
+	}
 }
