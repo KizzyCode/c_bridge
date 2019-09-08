@@ -1,5 +1,5 @@
 use crate::FfiObject;
-use std::{ mem, ptr, slice, any::TypeId, os::raw::c_void };
+use std::{ mem, ptr, slice, any::TypeId, convert::TryFrom, marker::PhantomData, os::raw::c_void };
 
 
 /// A C-compatible array
@@ -9,23 +9,23 @@ struct Array<T: 'static> {
 	len: usize
 }
 impl<T: 'static> Array<T> {
-	/// Creates a new `Array<T>` from `vec` and encapsulates it into an owned `FfiObject`
-	pub fn object_from_vec(vec: Vec<T>) -> FfiObject {
+	/// Creates a new `Array<T>` from `vec` and encapsulates it into a wrapped and owned `FfiObject`
+	pub fn from_vec(vec: Vec<T>) -> GenericArray<T> {
 		// Create boxed slice from vector
 		let mut boxed_slice: Box<[T]> = vec.into_boxed_slice();
 		let array = Box::new(Self{ ptr: boxed_slice.as_mut_ptr(), len: boxed_slice.len() });
 		
 		// Forget the slice and return the array
 		mem::forget(boxed_slice);
-		FfiObject {
+		GenericArray(FfiObject {
 			r#type: Self::r#type(),
 			dealloc: Some(Self::dealloc),
 			payload: Box::into_raw(array) as *mut c_void
-		}
+		}, PhantomData)
 	}
 	/// Moves the `Array<T>` out of the owned `object` and converts it back into a `Vec<T>` _if
-	/// `object` was allocated by this implementation_
-	pub fn object_back_into_vec(object: &mut FfiObject) -> Vec<T> {
+	/// `object` was allocated by this implementation (panics otherwise)_
+	pub fn back_into_vec(object: &mut FfiObject) -> Vec<T> {
 		// Validate the object
 		assert!(!object.payload.is_null());
 		assert_eq!(object.r#type, Self::r#type());
@@ -44,7 +44,7 @@ impl<T: 'static> Array<T> {
 	/// The deallocator for a `FfiObject` allocated by this implementation
 	pub extern "C" fn dealloc(object: *mut FfiObject) {
 		// Dereference the object and convert the array back into a vector which is then dropped
-		let _vec = Self::object_back_into_vec(unsafe{ object.as_mut() }.unwrap());
+		let _vec = Self::back_into_vec(unsafe{ object.as_mut() }.unwrap());
 	}
 	
 	/// The type of an FFI object with this array as payload
@@ -68,76 +68,66 @@ impl<T> AsMut<[T]> for Array<T> {
 }
 
 
-/// An interface-trait to work with `FfiObjects` containing a data array
-pub type DataArray = dyn GenericArray<u8>;
-/// An interface-trait to work with `FfiObjects` containing an object array
-pub type ObjectArray = dyn GenericArray<FfiObject>;
-
-
-/// An interface-trait to work with `FfiObjects` containing an array
+/// An interface to work with `FfiObjects` containing an array
 ///
-/// __Important: Don't specialize this trait by yourself, but use the predefined types instead
+/// __Important: You should not specialize this trait by yourself; use the predefined types instead
 /// ([`DataArray`](./type.DataArray.html) and [`ObjectArray`](type.ObjectArray.html))__
-pub trait GenericArray<T: 'static> {
-	/// Creates a new array from `vec` and wraps it into an owned `FfiObject`
-	fn from_vec(vec: Vec<T>) -> FfiObject;
-	
-	/// Ensures that `object` has the correct type and is not empty
-	fn check_type(object: &FfiObject) -> Option<&Self>;
-	/// Ensures that `object` has the correct type and is not empty
-	fn check_type_mut(object: &mut FfiObject) -> Option<&mut Self>;
-	
+#[repr(transparent)]
+pub struct GenericArray<T: 'static>(FfiObject, PhantomData<T>);
+impl<T: 'static> GenericArray<T> {
 	/// The underlying elements as slice
-	fn as_slice(&self) -> &[T];
+	pub fn as_slice(&self) -> &[T] {
+		unsafe{ (self.0.payload as *const Array<T>).as_ref() }.unwrap().as_ref()
+	}
 	/// The underlying elements as mutable slice
-	fn as_slice_mut(&mut self) -> &mut[T];
+	pub fn as_slice_mut(&mut self) -> &mut[T] {
+		unsafe{ (self.0.payload as *mut Array<T>).as_mut() }.unwrap().as_mut()
+	}
 	
-	/// Moves the underlying memory from the array-payload out of the `FfiObject` and creates a
-	/// `Vec<_>` _over_ it
+	/// Moves the underlying memory from the array-payload out of the underlying `FfiObject` and
+	/// creates a `Vec<_>` from it
 	///
-	/// _Note: this only works if the array was created using `from_vec`; otherwise this function
-	/// returns `None`_
-	fn move_into_vec(&mut self) -> Option<Vec<T>>;
+	/// _Note: this only works if the array was created using `from_vec`_
+	pub fn move_into_vec(mut self) -> Result<Vec<T>, Self> {
+		match self.0.dealloc {
+			Some(f) if f == Array::<T>::dealloc => Ok(Array::back_into_vec(&mut self.0)),
+			_ => Err(self)
+		}
+	}
 }
-impl<T: 'static> GenericArray<T> for FfiObject {
-	fn from_vec(vec: Vec<T>) -> FfiObject {
-		Array::object_from_vec(vec)
+impl<T: 'static> From<GenericArray<T>> for FfiObject {
+	fn from(array: GenericArray<T>) -> Self {
+		array.0
 	}
+}
+impl<T: 'static> TryFrom<FfiObject> for GenericArray<T> {
+	type Error = FfiObject;
 	
-	fn check_type(object: &FfiObject) -> Option<&Self> {
+	/// Converts `object` into the array if it has the correct type and is not empty
+	fn try_from(object: FfiObject) -> Result<Self, Self::Error> {
 		match object.payload.is_null() {
-			false if object.r#type == Array::<T>::r#type() => Some(object),
-			_ => None
-		}
-	}
-	fn check_type_mut(object: &mut FfiObject) -> Option<&mut Self> {
-		match object.payload.is_null() {
-			false if object.r#type == Array::<T>::r#type() => Some(object),
-			_ => None
-		}
-	}
-	
-	fn as_slice(&self) -> &[T] {
-		assert_eq!(self.r#type, Array::<T>::r#type(), "Invalid FFI object type");
-		unsafe{ (self.payload as *const Array<T>).as_ref() }
-			.expect("FFI object is empty").as_ref()
-	}
-	fn as_slice_mut(&mut self) -> &mut[T] {
-		assert_eq!(self.r#type, Array::<T>::r#type(), "Invalid FFI object type");
-		unsafe{ (self.payload as *mut Array<T>).as_mut() }
-			.expect("FFI object is empty").as_mut()
-	}
-	
-	fn move_into_vec(&mut self) -> Option<Vec<T>> {
-		assert_eq!(self.r#type, Array::<T>::r#type(), "Invalid FFI object type");
-		assert!(!self.payload.is_null(), "FFI object is emtpy");
-		
-		match self.dealloc {
-			Some(f) if f == Array::<T>::dealloc => Some(Array::object_back_into_vec(self)),
-			_ => None
+			false if object.r#type == Array::<T>::r#type() => Ok(Self(object, PhantomData)),
+			_ => Err(object)
 		}
 	}
 }
 
 
+/// An interface to work with `FfiObjects` containing a data array
+pub type DataArray = GenericArray<u8>;
+impl From<Vec<u8>> for GenericArray<u8> {
+	/// Creates a new array from `vec` and wraps it into a wrapped and owned `FfiObject`
+	fn from(vec: Vec<u8>) -> Self {
+		Array::from_vec(vec)
+	}
+}
 
+
+/// An interface to work with `FfiObjects` containing an object array
+pub type ObjectArray = GenericArray<FfiObject>;
+impl From<Vec<FfiObject>> for GenericArray<FfiObject> {
+	/// Creates a new array from `vec` and wraps it into a wrapped and owned `FfiObject`
+	fn from(vec: Vec<FfiObject>) -> Self {
+		Array::from_vec(vec)
+	}
+}

@@ -1,5 +1,5 @@
 use crate::FfiObject;
-use std::{ ptr, any::Any, ffi::c_void };
+use std::{ ptr, any::Any, convert::TryFrom, ffi::c_void };
 
 
 /// Some static helper methods for working with boxes
@@ -7,17 +7,17 @@ struct BoxExt;
 impl BoxExt {
 	/// Wraps `inner` into another box, converts this outer box into an unowned pointer and
 	/// encapsulates the pointer into an owned `FfiObject`
-	pub fn object_from_boxed(inner: Box<dyn Any + 'static>) -> FfiObject {
+	pub fn from_boxed(inner: Box<dyn Any + 'static>) -> RustBox {
 		let outer = Box::new(inner);
-		FfiObject {
+		RustBox(FfiObject {
 			r#type: FfiObject::RUST_BOX,
 			dealloc: Some(Self::dealloc),
 			payload: Box::into_raw(outer) as *mut c_void
-		}
+		})
 	}
 	/// Moves the outer box out of the owned `object` and converts it back into the inner box _if
 	/// `object` was allocated by this implementation_
-	pub fn object_back_into_boxed(object: &mut FfiObject) -> Box<dyn Any + 'static> {
+	pub fn back_into_boxed(object: &mut FfiObject) -> Box<dyn Any + 'static> {
 		// Validate the object
 		assert!(!object.payload.is_null());
 		assert_eq!(object.r#type, FfiObject::RUST_BOX);
@@ -35,69 +35,60 @@ impl BoxExt {
 	/// The deallocator for a `FfiObject` allocated by this implementation
 	pub extern "C" fn dealloc(object: *mut FfiObject) {
 		// Dereference the object and convert the outer box into the inner box which is then dropped
-		let _box = Self::object_back_into_boxed(unsafe{ object.as_mut() }.unwrap());
+		let _box = Self::back_into_boxed(unsafe{ object.as_mut() }.unwrap());
 	}
 }
 
 
-/// An interface-trait to work with `FfiObjects` containing a boxed Rust object
-pub trait RustBox {
-	/// Creates a new `Box` from `object` and wraps it into an owned `FfiObject`
-	fn from_object(object: impl Any + 'static) -> FfiObject;
-	
-	/// Ensures that `object` has the correct type and is not empty
-	fn check_type(object: &FfiObject) -> Option<&Self>;
-	/// Ensures that `object` has the correct type and is not empty
-	fn check_type_mut(object: &mut FfiObject) -> Option<&mut Self>;
-	
+/// An interface to work with `FfiObjects` containing a boxed Rust object
+#[repr(transparent)]
+pub struct RustBox(FfiObject);
+impl RustBox {
 	/// The underlying element as reference
-	fn as_ref(&self) -> &(dyn Any + 'static);
+	pub fn as_ref(&self) -> &(dyn Any + 'static) {
+		unsafe{ (self.0.payload as *const Box<Box<dyn Any + 'static>>).as_ref() }.unwrap()
+			.as_ref().as_ref()
+	}
 	/// The underlying element as mutable reference
-	fn as_mut(&mut self) -> &mut(dyn Any + 'static);
+	pub fn as_mut(&mut self) -> &mut(dyn Any + 'static) {
+		unsafe{ (self.0.payload as *mut Box<Box<dyn Any + 'static>>).as_mut() }.unwrap()
+			.as_mut().as_mut()
+	}
 	
 	/// Moves the underlying memory from the payload out of the `FfiObject` and creates a `Box`
-	/// _over_ it
+	/// from it
 	///
 	/// _Note: this only works if the Rust object was created using `from_object` (which should
-	/// almost always be the case); otherwise this function returns `None`_
-	fn move_into_box(&mut self) -> Option<Box<dyn Any + 'static>>;
-}
-impl RustBox for FfiObject {
-	fn from_object(object: impl Any + 'static) -> FfiObject {
-		BoxExt::object_from_boxed(Box::new(object))
-	}
-	
-	fn check_type(object: &FfiObject) -> Option<&Self> {
-		match object.payload.is_null() {
-			false if object.r#type == FfiObject::RUST_BOX => Some(object),
-			_ => None
-		}
-	}
-	fn check_type_mut(object: &mut FfiObject) -> Option<&mut Self> {
-		match object.payload.is_null() {
-			false if object.r#type == FfiObject::RUST_BOX => Some(object),
-			_ => None
-		}
-	}
-	
-	fn as_ref(&self) -> &(dyn Any + 'static) {
-		assert_eq!(self.r#type, FfiObject::RUST_BOX, "Invalid FFI object type");
-		unsafe{ (self.payload as *const Box<Box<dyn Any + 'static>>).as_ref() }
-			.expect("FFI object is empty").as_ref().as_ref()
-	}
-	fn as_mut(&mut self) -> &mut(dyn Any + 'static) {
-		assert_eq!(self.r#type, FfiObject::RUST_BOX, "Invalid FFI object type");
-		unsafe{ (self.payload as *mut Box<Box<dyn Any + 'static>>).as_mut() }
-			.expect("FFI object is empty").as_mut().as_mut()
-	}
-	
-	fn move_into_box(&mut self) -> Option<Box<dyn Any + 'static>> {
-		assert_eq!(self.r#type, FfiObject::RUST_BOX, "Invalid FFI object type");
-		assert!(!self.payload.is_null(), "FFI object is emtpy");
+	/// almost always be the case)_
+	pub fn move_into_box(mut self) -> Result<Box<dyn Any + 'static>, Self> {
+		assert_eq!(self.0.r#type, FfiObject::RUST_BOX, "Invalid FFI object type");
+		assert!(!self.0.payload.is_null(), "FFI object is emtpy");
 		
-		match self.dealloc {
-			Some(f) if f == BoxExt::dealloc => Some(BoxExt::object_back_into_boxed(self)),
-			_ => None
+		match self.0.dealloc {
+			Some(f) if f == BoxExt::dealloc => Ok(BoxExt::back_into_boxed(&mut self.0)),
+			_ => Err(self)
 		}
+	}
+}
+impl From<RustBox> for FfiObject {
+	fn from(boxed: RustBox) -> Self {
+		boxed.0
+	}
+}
+impl TryFrom<FfiObject> for RustBox {
+	type Error = FfiObject;
+	
+	/// Converts `object` into the Rust box if it has the correct type and is not empty
+	fn try_from(object: FfiObject) -> Result<Self, Self::Error> {
+		match object.payload.is_null() {
+			false if object.r#type == FfiObject::RUST_BOX => Ok(Self(object)),
+			_ => Err(object)
+		}
+	}
+}
+impl<T: Any + 'static> From<Box<T>> for RustBox {
+	/// Creates a new `Box` from `object` and encapsulates it into a wrapped and owned `FfiObject`
+	fn from(boxed: Box<T>) -> Self {
+		BoxExt::from_boxed(boxed)
 	}
 }
