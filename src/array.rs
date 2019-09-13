@@ -1,133 +1,92 @@
-use crate::FfiObject;
-use std::{ mem, ptr, slice, any::TypeId, convert::TryFrom, marker::PhantomData, os::raw::c_void };
+use std::{
+	ptr, slice, marker::PhantomData, os::raw::c_void,
+	ops::{ Deref, DerefMut }
+};
 
 
-/// A C-compatible array
+/// A data-array implementation with a `Vec<T>` as backing
+mod vec_impl {
+	use super::*;
+	
+	pub extern "C" fn dealloc<T>(object: *mut *mut c_void) {
+		// Dereference the outer pointer
+		let object = unsafe{ (object as *mut *mut Vec<T>).as_mut() }
+			.expect("Unexpected NULL pointer");
+		
+		// Deallocate the vec and set the outer pointer to NULL
+		if !object.is_null() {
+			let _vec = unsafe{ Box::from_raw(*object) };
+			*object = ptr::null_mut();
+		}
+	}
+	pub extern "C" fn len<T>(object: *const c_void) -> usize {
+		unsafe{ (object as *const Vec<T>).as_ref() }
+			.expect("Unexpected NULL pointer")
+			.len()
+	}
+	pub extern "C" fn data<T>(object: *const c_void) -> *const T {
+		unsafe{ (object as *const Vec<T>).as_ref() }
+			.expect("Unexpected NULL pointer")
+			.as_ptr()
+	}
+	pub extern "C" fn data_mut<T>(object: *mut c_void) -> *mut T {
+		unsafe{ (object as *mut Vec<T>).as_mut() }
+			.expect("Unexpected NULL pointer")
+			.as_mut_ptr()
+	}
+}
+
+
+/// A FFI-compatible data array which can be resized and `deref`s to a slice
 #[repr(C)]
-struct Array<T: 'static> {
-	ptr: *mut T,
-	len: usize
+pub struct Array<T> {
+	/// The deallocator if the object is owned
+	pub dealloc: extern "C" fn(*mut *mut c_void),
+	/// The length of the data array in bytes
+	pub len: extern "C" fn(*const c_void) -> usize,
+	/// A pointer to the underlying data
+	pub data: extern "C" fn(*const c_void) -> *const T,
+	/// A mutable pointer to the underlying data
+	pub data_mut: extern "C" fn(*mut c_void) -> *mut T,
+	/// The underlying object (implementation dependent)
+	pub object: *mut c_void,
+	_type: PhantomData<T>
 }
-impl<T: 'static> Array<T> {
-	/// Creates a new `Array<T>` from `vec` and encapsulates it into a wrapped and owned `FfiObject`
-	pub fn from_vec(vec: Vec<T>) -> GenericArray<T> {
-		// Create boxed slice from vector
-		let mut boxed_slice: Box<[T]> = vec.into_boxed_slice();
-		let array = Box::new(Self{ ptr: boxed_slice.as_mut_ptr(), len: boxed_slice.len() });
-		
-		// Forget the slice and return the array
-		mem::forget(boxed_slice);
-		GenericArray(FfiObject {
-			r#type: Self::r#type(),
-			dealloc: Some(Self::dealloc),
-			payload: Box::into_raw(array) as *mut c_void
-		}, PhantomData)
+impl<T> Array<T> {
+	/// The length of the data array
+	pub fn len(&self) -> usize {
+		(self.len)(self.object)
 	}
-	/// Moves the `Array<T>` out of the owned `object` and converts it back into a `Vec<T>` _if
-	/// `object` was allocated by this implementation (panics otherwise)_
-	pub fn back_into_vec(object: &mut FfiObject) -> Vec<T> {
-		// Validate the object
-		assert!(!object.payload.is_null());
-		assert_eq!(object.r#type, Self::r#type());
-		if object.dealloc != Some(Self::dealloc) { panic!("Not allocated by this implementation") }
-		
-		// Move the array into an owned box
-		let array = unsafe{ Box::from_raw(object.payload as *mut Self) };
-		object.dealloc = None;
-		object.payload = ptr::null_mut();
-		
-		// Take the ownership over `slice`
-		let slice = unsafe{ slice::from_raw_parts_mut(array.ptr, array.len) };
-		unsafe{ Box::from_raw(slice) }.into_vec()
+}
+impl<T> Deref for Array<T> {
+	type Target = [T];
+	fn deref(&self) -> &Self::Target {
+		let len = self.len();
+		let data = (self.data)(self.object);
+		unsafe{ slice::from_raw_parts(data, len) }
 	}
-	
-	/// The deallocator for a `FfiObject` allocated by this implementation
-	pub extern "C" fn dealloc(object: *mut FfiObject) {
-		// Dereference the object and convert the array back into a vector which is then dropped
-		let _vec = Self::back_into_vec(unsafe{ object.as_mut() }.unwrap());
+}
+impl<T> DerefMut for Array<T> {
+	fn deref_mut(&mut self) -> &mut Self::Target {
+		let len = self.len();
+		let data = (self.data_mut)(self.object);
+		unsafe{ slice::from_raw_parts_mut(data, len) }
 	}
-	
-	/// The type of an FFI object with this array as payload
-	pub fn r#type() -> u64 {
-		match TypeId::of::<T>() {
-			id if id == TypeId::of::<u8>() => FfiObject::DATA_ARRAY,
-			id if id == TypeId::of::<FfiObject>() => FfiObject::OBJECT_ARRAY,
-			_ => panic!("Unsupported array type")
+}
+impl<T> From<Vec<T>> for Array<T> {
+	fn from(vec: Vec<T>) -> Self {
+		Self {
+			dealloc: vec_impl::dealloc::<T>,
+			len: vec_impl::len::<T>,
+			data: vec_impl::data::<T>,
+			data_mut: vec_impl::data_mut::<T>,
+			object: Box::into_raw(Box::new(vec)) as *mut c_void,
+			_type: PhantomData
 		}
 	}
 }
-impl<T> AsRef<[T]> for Array<T> {
-	fn as_ref(&self) -> &[T] {
-		unsafe{ slice::from_raw_parts(self.ptr, self.len) }
-	}
-}
-impl<T> AsMut<[T]> for Array<T> {
-	fn as_mut(&mut self) -> &mut[T] {
-		unsafe{ slice::from_raw_parts_mut(self.ptr, self.len) }
-	}
-}
-
-
-/// An interface to work with `FfiObjects` containing an array
-///
-/// __Important: You should not specialize this trait by yourself; use the predefined types instead
-/// ([`DataArray`](./type.DataArray.html) and [`ObjectArray`](type.ObjectArray.html))__
-#[repr(transparent)]
-pub struct GenericArray<T: 'static>(FfiObject, PhantomData<T>);
-impl<T: 'static> GenericArray<T> {
-	/// The underlying elements as slice
-	pub fn as_slice(&self) -> &[T] {
-		unsafe{ (self.0.payload as *const Array<T>).as_ref() }.unwrap().as_ref()
-	}
-	/// The underlying elements as mutable slice
-	pub fn as_slice_mut(&mut self) -> &mut[T] {
-		unsafe{ (self.0.payload as *mut Array<T>).as_mut() }.unwrap().as_mut()
-	}
-	
-	/// Moves the underlying memory from the array-payload out of the underlying `FfiObject` and
-	/// creates a `Vec<_>` from it
-	///
-	/// _Note: this only works if the array was created using `from_vec`_
-	pub fn move_into_vec(mut self) -> Result<Vec<T>, Self> {
-		match self.0.dealloc {
-			Some(f) if f == Array::<T>::dealloc => Ok(Array::back_into_vec(&mut self.0)),
-			_ => Err(self)
-		}
-	}
-}
-impl<T: 'static> From<GenericArray<T>> for FfiObject {
-	fn from(array: GenericArray<T>) -> Self {
-		array.0
-	}
-}
-impl<T: 'static> TryFrom<FfiObject> for GenericArray<T> {
-	type Error = FfiObject;
-	
-	/// Converts `object` into the array if it has the correct type and is not empty
-	fn try_from(object: FfiObject) -> Result<Self, Self::Error> {
-		match object.payload.is_null() {
-			false if object.r#type == Array::<T>::r#type() => Ok(Self(object, PhantomData)),
-			_ => Err(object)
-		}
-	}
-}
-
-
-/// An interface to work with `FfiObjects` containing a data array
-pub type DataArray = GenericArray<u8>;
-impl From<Vec<u8>> for GenericArray<u8> {
-	/// Creates a new array from `vec` and wraps it into a wrapped and owned `FfiObject`
-	fn from(vec: Vec<u8>) -> Self {
-		Array::from_vec(vec)
-	}
-}
-
-
-/// An interface to work with `FfiObjects` containing an object array
-pub type ObjectArray = GenericArray<FfiObject>;
-impl From<Vec<FfiObject>> for GenericArray<FfiObject> {
-	/// Creates a new array from `vec` and wraps it into a wrapped and owned `FfiObject`
-	fn from(vec: Vec<FfiObject>) -> Self {
-		Array::from_vec(vec)
+impl<T> Drop for Array<T> {
+	fn drop(&mut self) {
+		(self.dealloc)(&mut self.object)
 	}
 }

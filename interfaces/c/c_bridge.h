@@ -4,51 +4,42 @@
 #include <stdint.h>
 
 
-/// An opaque payload
-uint64_t const C_BRIDGE_TYPE_OPAQUE = 0x00;
-
-/// A data array
-uint64_t const C_BRIDGE_TYPE_DATA_ARRAY = 0x01;
-/// An object array
-uint64_t const C_BRIDGE_TYPE_OBJECT_ARRAY = 0x02;
-
-/// An owned, boxed Rust object
-uint64_t const C_BRIDGE_TYPE_RUST_BOX = 0x10;
-
-/// The mask for custom types
-///
-/// \warning You have to ensure that you don't define the same value twice for different types. If
-///          you don't need to check against the type later, use `OPAQUE`
-uint64_t const C_BRIDGE_TYPE_MASK_CUSTOM = 1 << 63;
-
-
-/// A FFI object
+/// A heap-allocated `uint8_t` array
 typedef struct {
-	uint64_t type; ///< The payload type
-	void(*dealloc)(c_bridge_ffi_object*); ///< The deallocator or `NULL` the object is unowned
-	void* payload; ///< The payload or `NULL` if it is empty
-} c_bridge_ffi_object;
+	void (*dealloc)(void**); ///< The deallocator (must handle `NULL` pointers)
+	size_t (*len)(void const*); ///< Returns the amount of bytes
+	uint8_t const* (*data)(void const*); ///< Returns a pointer to the underlying bytes
+	uint8_t* (*data_mut)(void*); ///< Returns a mutable pointer to the underlying bytes
+	void* object; ///< The underlying storage object
+} array_u8_t;
 
 
-/// A FFI result
+/// A heap-allocated `array_u8_t` array
 typedef struct {
-	c_bridge_ffi_object ok; ///< The ok-result
-	c_bridge_ffi_object err; ///< The error or an emtpy object in case of success
-} c_bridge_ffi_result;
+	void (*dealloc)(void**); ///< The deallocator (must handle `NULL` pointers)
+	size_t (*len)(void const*); ///< Returns the amount of arrays
+	array_u8_t const* (*data)(void const*); ///< Returns a pointer to the underlying arrays
+	array_u8_t* (*data_mut)(void*); ///< Returns a mutable pointer to the underlying arrays
+	void* object; ///< The underlying storage object
+} array_u8array_t;
 
 
-/// A data array
+/// An opaque object
 typedef struct {
-	uint8_t* data; ///< The data
-	size_t* len; ///< The data length
-} c_bridge_data_array;
+	void (*dealloc)(void**); ///< The deallocator (must handle `NULL` pointers)
+	char const* (*type_hint)(); ///< Returns a pointer to a type hint
+	void* object; ///< The underlying storage object
+} opaque_t;
 
 
-/// An object array
+/// A result type with `array_u8_t` as result and `char const*` as error type
 typedef struct {
-	c_bridge_ffi_object* objects; ///< The objects
-	size_t* len; ///< The amount of objects
-} c_bridge_object_array;
+	void (*dealloc)(void**); ///< The deallocator (must handle `NULL` pointers)
+	array_u8_t (*into_ok)(void**); ///< Consumes the object and returns the underlying result
+	char const* (*into_err)(void**); ///< Consumes the object and returns the underlying error
+	uint8_t (*is_ok)(void const*); ///< Returns `1` if the result is ok; `0` otherwise
+	void* object; ///< The underlying storage object
+} result_u8array_constchar_t;
 
 
 #endif //C_BRIDGE_H
