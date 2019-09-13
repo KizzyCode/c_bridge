@@ -24,6 +24,12 @@ typedef struct {
 } array_u8array_t;
 
 
+/// A NULL object
+typedef struct {
+	uint8_t _dummy; ///< A dummy byte because empty structs are not allowed; just ignore it
+} null_t;
+
+
 /// An opaque object
 typedef struct {
 	void (*dealloc)(void**); ///< The deallocator (must handle `NULL` pointers)
