@@ -13,7 +13,6 @@ typedef struct {
 	void* object; ///< The underlying storage object
 } array_u8_t;
 
-
 /// A heap-allocated `array_u8_t` array
 typedef struct {
 	void (*dealloc)(void**); ///< The deallocator (must handle `NULL` pointers)
@@ -38,14 +37,32 @@ typedef struct {
 } opaque_t;
 
 
-/// A result type with `array_u8_t` as result and `char const*` as error type
+/// A result type with `null_t` as result and `array_u8_t` as error type
+typedef struct {
+	void (*dealloc)(void**); ///< The deallocator (must handle `NULL` pointers)
+	null_t (*into_ok)(void**); ///< Consumes the object and returns the underlying result
+	array_u8_t (*into_err)(void**); ///< Consumes the object and returns the underlying error
+	uint8_t (*is_ok)(void const*); ///< Returns `1` if the result is ok; `0` otherwise
+	void* object; ///< The underlying storage object
+} result_null_u8array_t;
+
+/// A result type with `opaque_t` as result and `array_u8_t` as error type
+typedef struct {
+	void (*dealloc)(void**); ///< The deallocator (must handle `NULL` pointers)
+	opaque_t (*into_ok)(void**); ///< Consumes the object and returns the underlying result
+	array_u8_t (*into_err)(void**); ///< Consumes the object and returns the underlying error
+	uint8_t (*is_ok)(void const*); ///< Returns `1` if the result is ok; `0` otherwise
+	void* object; ///< The underlying storage object
+} result_opaque_u8array_t;
+
+/// A result type with `array_u8_t` as result and `array_u8_t` as error type
 typedef struct {
 	void (*dealloc)(void**); ///< The deallocator (must handle `NULL` pointers)
 	array_u8_t (*into_ok)(void**); ///< Consumes the object and returns the underlying result
-	char const* (*into_err)(void**); ///< Consumes the object and returns the underlying error
+	array_u8_t (*into_err)(void**); ///< Consumes the object and returns the underlying error
 	uint8_t (*is_ok)(void const*); ///< Returns `1` if the result is ok; `0` otherwise
 	void* object; ///< The underlying storage object
-} result_u8array_constchar_t;
+} result_u8array_u8array_t;
 
 
 #endif //C_BRIDGE_H
