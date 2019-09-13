@@ -70,6 +70,12 @@ pub struct FfiResult<T, E> {
 	/// The underlying object (implementation dependent)
 	pub object: *mut c_void
 }
+impl<T, E> FfiResult<T, E> {
+	/// Converts `self` into a Rust result
+	pub fn into_result(mut self) -> Result<T, E> {
+		self.into()
+	}
+}
 impl<T, E> Into<Result<T, E>> for FfiResult<T, E> {
 	fn into(mut self) -> Result<T, E> {
 		match (self.is_ok)(self.object) {
