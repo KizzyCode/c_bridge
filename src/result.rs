@@ -75,6 +75,15 @@ impl<T, E> FfiResult<T, E> {
 	pub fn into_result(self) -> Result<T, E> {
 		self.into()
 	}
+	
+	/// Maps the `Ok`-variant of the result
+	pub fn map<R>(self, f: impl FnOnce(T) -> R) -> Result<R, E> {
+		self.into_result().map(f)
+	}
+	/// Maps the `Err`-variant of the result
+	pub fn map_err<R>(self, f: impl FnOnce(E) -> R) -> Result<T, R> {
+		self.into_result().map_err(f)
+	}
 }
 impl<T, E> Into<Result<T, E>> for FfiResult<T, E> {
 	fn into(mut self) -> Result<T, E> {
