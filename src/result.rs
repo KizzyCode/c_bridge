@@ -72,7 +72,7 @@ pub struct FfiResult<T, E> {
 }
 impl<T, E> FfiResult<T, E> {
 	/// Converts `self` into a Rust result
-	pub fn into_result(mut self) -> Result<T, E> {
+	pub fn into_result(self) -> Result<T, E> {
 		self.into()
 	}
 }
