@@ -5,47 +5,47 @@ use std::{ ptr, os::raw::c_void };
 mod result_impl {
 	use super::*;
 	
-	pub extern "C" fn dealloc<T, E>(object: *mut *mut c_void) {
+	pub unsafe extern "C" fn dealloc<T, E>(object: *mut *mut c_void) {
 		// Dereference the outer pointer
-		let object = unsafe{ (object as *mut *mut Result<T, E>).as_mut() }
+		let object = (object as *mut *mut Result<T, E>).as_mut()
 			.expect("Unexpected NULL pointer");
 		
 		// Deallocate the vec and set the outer pointer to NULL
 		if !object.is_null() {
-			let _result = unsafe{ Box::from_raw(*object) };
+			let _result = Box::from_raw(*object);
 			*object = ptr::null_mut();
 		}
 	}
-	pub extern "C" fn into_ok<T, E>(object: *mut *mut c_void) -> T {
+	pub unsafe extern "C" fn into_ok<T, E>(object: *mut *mut c_void) -> T {
 		// Dereference the outer pointer
-		let object = unsafe{ (object as *mut *mut Result<T, E>).as_mut() }
+		let object = (object as *mut *mut Result<T, E>).as_mut()
 			.expect("Unexpected NULL pointer");
 		assert!(!object.is_null(), "Unexpected NULL pointer");
 		
 		// Deallocate the vec and set the outer pointer to NULL
-		let result = unsafe{ Box::from_raw(*object) };
+		let result = Box::from_raw(*object);
 		*object = ptr::null_mut();
 		match *result {
 			Err(_) => panic!("Unexpected `Err`-value in result"),
 			Ok(r) => r
 		}
 	}
-	pub extern "C" fn into_err<T, E>(object: *mut *mut c_void) -> E {
+	pub unsafe extern "C" fn into_err<T, E>(object: *mut *mut c_void) -> E {
 		// Dereference the outer pointer
-		let object = unsafe{ (object as *mut *mut Result<T, E>).as_mut() }
+		let object = (object as *mut *mut Result<T, E>).as_mut()
 			.expect("Unexpected NULL pointer");
 		assert!(!object.is_null(), "Unexpected NULL pointer");
 		
 		// Deallocate the vec and set the outer pointer to NULL
-		let result = unsafe{ Box::from_raw(*object) };
+		let result = Box::from_raw(*object);
 		*object = ptr::null_mut();
 		match *result {
 			Ok(_) => panic!("Unexpected `Ok`-value in result"),
 			Err(e) => e
 		}
 	}
-	pub extern "C" fn is_ok<T, E>(object: *const c_void) -> u8 {
-		let is_ok = unsafe{ (object as *const Result<T, E>).as_ref() }
+	pub unsafe extern "C" fn is_ok<T, E>(object: *const c_void) -> u8 {
+		let is_ok = (object as *const Result<T, E>).as_ref()
 			.expect("Unexpected NULL pointer")
 			.is_ok();
 		match is_ok {
@@ -60,13 +60,13 @@ mod result_impl {
 #[repr(C)]
 pub struct FfiResult<T, E> {
 	/// The deallocator if the object is owned
-	pub dealloc: extern "C" fn(*mut *mut c_void),
+	pub dealloc: unsafe extern "C" fn(*mut *mut c_void),
 	/// Consumes the object and returns the underlying result
-	pub into_ok: extern "C" fn(*mut *mut c_void) -> T,
+	pub into_ok: unsafe extern "C" fn(*mut *mut c_void) -> T,
 	/// Consumes the object and returns the underlying error
-	pub into_err: extern "C" fn(*mut *mut c_void) -> E,
+	pub into_err: unsafe extern "C" fn(*mut *mut c_void) -> E,
 	/// Indicates if the result is ok (`1`) or if it contains an error (`0`)
-	pub is_ok: extern "C" fn(*const c_void) -> u8,
+	pub is_ok: unsafe extern "C" fn(*const c_void) -> u8,
 	/// The underlying object (implementation dependent)
 	pub object: *mut c_void
 }
@@ -87,9 +87,9 @@ impl<T, E> FfiResult<T, E> {
 }
 impl<T, E> Into<Result<T, E>> for FfiResult<T, E> {
 	fn into(mut self) -> Result<T, E> {
-		match (self.is_ok)(self.object) {
-			1 => Ok((self.into_ok)(&mut self.object)),
-			0 => Err((self.into_err)(&mut self.object)),
+		match unsafe{ (self.is_ok)(self.object) } {
+			1 => Ok(unsafe{ (self.into_ok)(&mut self.object) }),
+			0 => Err(unsafe{ (self.into_err)(&mut self.object) }),
 			i => panic!("`FfiResult::is_ok` returned an invalid value ({})", i)
 		}
 	}
@@ -107,6 +107,6 @@ impl<T, E> From<Result<T, E>> for FfiResult<T, E> {
 }
 impl<T, E> Drop for FfiResult<T, E> {
 	fn drop(&mut self) {
-		(self.dealloc)(&mut self.object)
+		unsafe{ (self.dealloc)(&mut self.object) }
 	}
 }
