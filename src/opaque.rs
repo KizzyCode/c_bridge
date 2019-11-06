@@ -8,18 +8,18 @@ use std::{
 mod rust_box_impl {
 	use super::*;
 	
-	pub unsafe extern "C" fn dealloc(object: *mut *mut c_void) {
-		// Dereference the outer pointer
-		let object = (object as *mut *mut Box<dyn Any + 'static>).as_mut()
-			.expect("Unexpected NULL pointer");
-		
-		// Deallocate the vec and set the outer pointer to NULL
-		if !object.is_null() {
-			let _opaque = Box::from_raw(*object);
-			*object = ptr::null_mut();
+	//noinspection DuplicatedCode
+	pub unsafe extern "C" fn dealloc(opaque: *mut Opaque) {
+		if let Some(opaque) = opaque.as_mut() {
+			if !opaque.object.is_null() {
+				let _object = Box::from_raw(opaque.object);
+				opaque.object = ptr::null_mut();
+			}
 		}
 	}
-	pub unsafe extern "C" fn type_hint() -> *const c_char {
+	pub unsafe extern "C" fn type_hint(opaque: *const Opaque) -> *const c_char {
+		opaque.as_ref().expect("Unexpected NULL pointer")
+			.object.as_ref().expect("Unexpected NULL pointer");
 		b"Rust::Box<dyn Any + 'static>\0".as_ptr() as *const c_char
 	}
 }
@@ -29,16 +29,16 @@ mod rust_box_impl {
 #[repr(C)]
 pub struct Opaque {
 	/// The deallocator if the object is owned
-	pub dealloc: unsafe extern "C" fn(*mut *mut c_void),
+	pub dealloc: unsafe extern "C" fn(*mut Self),
 	/// A pointer to a type hint (which is a NULL-terminated string)
-	pub type_hint: unsafe extern "C" fn() -> *const c_char,
+	pub type_hint: unsafe extern "C" fn(*const Self) -> *const c_char,
 	/// The underlying object (implementation dependent)
 	pub object: *mut c_void
 }
 impl Opaque {
 	/// The type hint of the opaque object
 	pub fn type_hint(&self) -> *const c_char {
-		unsafe{ (self.type_hint)() }
+		unsafe{ (self.type_hint)(self) }
 	}
 	/// A reference to a `Box<dyn Any + 'static>` if the opaque object contains such a box
 	pub fn as_rust_box(&self) -> Option<&Box<dyn Any + 'static>> {
@@ -70,6 +70,6 @@ impl From<Box<dyn Any + 'static>> for Opaque {
 }
 impl Drop for Opaque {
 	fn drop(&mut self) {
-		unsafe{ (self.dealloc)(&mut self.object) }
+		unsafe{ (self.dealloc)(self) }
 	}
 }
