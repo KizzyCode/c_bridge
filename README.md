@@ -5,7 +5,7 @@
 [![Download numbers](https://img.shields.io/crates/d/c_bridge.svg)](https://crates.io/crates/c_bridge)
 [![Travis CI](https://travis-ci.org/KizzyCode/c_bridge.svg?branch=master)](https://travis-ci.org/KizzyCode/c_bridge)
 [![AppVeyor CI](https://ci.appveyor.com/api/projects/status/github/KizzyCode/c_bridge?svg=true)](https://ci.appveyor.com/project/KizzyCode/c-bridge)
-[![dependency status](https://deps.rs/crate/c_bridge/0.5.0/status.svg)](https://deps.rs/crate/c_bridge/0.5.0)
+[![dependency status](https://deps.rs/crate/c_bridge/0.6.0/status.svg)](https://deps.rs/crate/c_bridge/0.6.0)
 
 # About `c_bridge`
 This crate provides some data structures and abstractions to create clean Rust <-> C FFI interfaces
