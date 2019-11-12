@@ -9,6 +9,7 @@ keywords = ["C", "C-API", "FFI", "FFI-Bindings"]
 license = "BSD-2-Clause OR MIT"
 repository = "https://github.com/KizzyCode/c_bridge"
 readme = "README.md"
+build = "build.rs"
 
 
 [badges]
@@ -19,7 +20,16 @@ is-it-maintained-open-issues = { repository = "KizzyCode/c_bridge" }
 is-it-maintained-issue-resolution = { repository = "KizzyCode/c_bridge" }
 
 
+[features]
+default = []
+test_build = ["cc"]
+
+
 [dependencies]
+
+
+[build-dependencies]
+cc = { version = "^1.0", optional = true }
 
 
 [profile.dev]

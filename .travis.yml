@@ -20,5 +20,5 @@ compiler:
   - clang
 
 script:
-  - cargo test --verbose
-  - cargo test --verbose --release
+  - cargo test --features="test_build" --verbose
+  - cargo test --features="test_build" --verbose --release

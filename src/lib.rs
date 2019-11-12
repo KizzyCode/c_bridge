@@ -1,6 +1,9 @@
-pub mod array;
-pub mod null;
-pub mod opaque;
-pub mod result;
+mod array;
+mod null;
+mod opaque;
+mod result;
+
+#[cfg(test)]
+mod tests;
 
 pub use crate::{ array::Array, null::Null, opaque::Opaque, result::FfiResult };
