@@ -9,3 +9,8 @@
 
 # About `c_bridge`
 This crate provides some data structures and abstractions to create clean Rust <-> C FFI interfaces
+
+
+# Dependencies
+If you build the crate with `test_build` enabled, the `cc`-crate is required to build and link the
+necessary C test code. By default, the crate is dependency less.

@@ -38,7 +38,7 @@ mod vec_impl {
 /// A FFI-compatible data array which can be resized and `deref`s to a slice
 #[repr(C)]
 pub struct Array<T> {
-	/// The deallocator if the object is owned
+	/// The deallocator
 	pub dealloc: unsafe extern "C" fn(*mut Self),
 	/// The amount of elements in the array
 	pub len: unsafe extern "C" fn(*const Self) -> usize,

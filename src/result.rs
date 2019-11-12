@@ -59,7 +59,7 @@ mod result_impl {
 /// A FFI-compatible result type
 #[repr(C)]
 pub struct FfiResult<T, E> {
-	/// The deallocator if the object is owned
+	/// The deallocator
 	pub dealloc: unsafe extern "C" fn(*mut Self),
 	/// Consumes the object and returns the underlying result
 	pub into_ok: unsafe extern "C" fn(*mut Self) -> T,

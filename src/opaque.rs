@@ -28,7 +28,7 @@ mod rust_box_impl {
 /// A FFI-compatible wrapper for opaque types
 #[repr(C)]
 pub struct Opaque {
-	/// The deallocator if the object is owned
+	/// The deallocator
 	pub dealloc: unsafe extern "C" fn(*mut Self),
 	/// A pointer to a type hint (which is a NULL-terminated string)
 	pub type_hint: unsafe extern "C" fn(*const Self) -> *const c_char,
